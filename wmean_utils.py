@@ -1,4 +1,4 @@
-# Written by Lei Wu and Simon Williams
+# Written by Lei Wu and Simon Williams with code snippets from a variety of sources
 
 import numpy as np
 import pandas as pd
