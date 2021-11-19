@@ -24,3 +24,9 @@ def spherical2cartesian(theta, phi):
     z = np.sin(theta)  
     
     return x, y, z
+
+def GCD_cartesian(cartesian1, cartesian2):
+    
+    gcd =  np.arccos(np.dot(cartesian1,cartesian2))
+    
+    return gcd
