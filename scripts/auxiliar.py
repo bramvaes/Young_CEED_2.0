@@ -41,12 +41,11 @@ def GCD_cartesian(cartesian1, cartesian2):
     gcd =  np.arccos(dot)
     
     return gcd
+
 def get_poles (df, name, slat, slon, dec, inc, plat, plon, verbose=True):
     """
     Seeks to fill in missing poles/vgp entries in dataframe.
-    
     Input: dataframe + column labels for site name, site lat, site lon, dec, inc, pole (or vgp) lat, and pole (or vgp) lon.
-    
     Output: the original dataframe with additional computed pole (or vgp) coordinates, where determinable
     """
     # first identify any entries missing pole / vgp information
@@ -89,9 +88,7 @@ def get_poles (df, name, slat, slon, dec, inc, plat, plon, verbose=True):
 def get_alpha95s (df, name, n, alpha95, k, verbose=True): 
     """
     Seeks to fill in missing alpha95s in dataframe.
-    
     Input: dataframe + column labels for site name, sample count (n), alpha95, and precision parameter (k).
-    
     Output: the original dataframe with additional computed alpha 95 estimates, where determinable
     """
     
@@ -115,10 +112,11 @@ def get_alpha95s (df, name, n, alpha95, k, verbose=True):
 
         # calculate alpha95s.
         df_get_a95s = df_missing_a95s[df_missing_a95s['sufficient'] == True]
-        df_get_a95s['a95'] = df_get_a95s.apply(lambda row: 140.0/np.sqrt(row[n] * row[k]), axis=1)
+        if not df_get_a95s.empty:
+            df_get_a95s['a95'] = df_get_a95s.apply(lambda row: 140.0/np.sqrt(row[n] * row[k]), axis=1)
 
-        # assign calculated a95s to original dataframe.
-        df[alpha95].fillna(df_get_a95s.a95, inplace=True)
+            # assign calculated a95s to original dataframe.
+            df[alpha95].fillna(df_get_a95s.a95, inplace=True)
         
         # set those which could not be calculated to 999, and drop added column
         df[alpha95].fillna(value=999)
@@ -130,9 +128,7 @@ def get_alpha95s (df, name, n, alpha95, k, verbose=True):
 def xcheck_dirs_poles (df, name, slat, slon, dec, inc, plat, plon, verbose=True):
     """
     Cross checks combination of directions, poles and site coordinates to ensure they are consistent with one another
-    
     Input: dataframe + column labels for site name, site lat, site lon, dec, inc, pole (or vgp) lat, and pole (or vgp) lon.
-    
     Output: the original dataframe with poles (or vgps) inverted where they appear to have been reported 'upside down'. Alerts raised for otherwise
     spurious-looking poles (arbitrarily defined as a discrepancy of greater than 2 degrees between computed and reported pole / vgp)
     """
@@ -170,11 +166,9 @@ def xcheck_dirs_poles (df, name, slat, slon, dec, inc, plat, plon, verbose=True)
 def go_reverse (df, plat, plon, rev_plat, rev_plon, rev_mean=[0,-90]): 
     """
     Determines polarity and establishes a new series where the poles / vgps are all of reversed polarity
-    
     Input: dataframe + column labels for pole (or vgp) lat, pole (or vgp) lon, and the desired labels for the new reversed plat / plon columns. A
     'guesstimate' of where the mean reverse pole [lon,lat] is also needed. For the last tens of Ma it is reasonable to leave this as [-90, 0], but this is
     not a safe assumption in deeper time (and thus this mean reverse pole may need to be set on a case-by-case basis).
-    
     Output: the original dataframe with polarity specified (where not previously determined) and a new series with poles / vgps 
     reported in reverse polarity
     """
