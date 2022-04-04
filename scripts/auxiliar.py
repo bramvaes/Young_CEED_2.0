@@ -13,24 +13,34 @@ def get_files_in_directory(path):
     return [os.path.join(path, name) for name in os.listdir(path)
             if (os.path.isfile(os.path.join(path, name)) and (not name.startswith('.')))  ]
 
-def spherical2cartesian(theta, phi):
+def cartesian2spherical(v):  
     """
-    v[0] = theta / Latitude
-    v[1] = phi   / Longitude
+    Take an array of lenght 3 correspoingt to a 3-dimensional vector and returns a array of lenght 2
+    with co-latitade and longitude
+    """
+    theta = np.arcsin(v[2])         #facu     theta = np.arccos(v[2]) 
+    phi = np.arctan2(v[1], v[0])
+        
+    return [theta, phi]
+
+def spherical2cartesian(v):
+    """
+    v[0] = theta - Latitude
     """
     
-    x = np.cos(theta) * np.cos(phi)  
-    y = np.cos(theta) * np.sin(phi)  
-    z = np.sin(theta)  
+    x = np.cos(v[0]) * np.cos(v[1])  # x = np.sin(v[0]) * np.cos(v[1])
+    y = np.cos(v[0]) * np.sin(v[1])  # y = np.sin(v[0]) * np.sin(v[1])
+    z = np.sin(v[0])                 # z = np.cos(v[0])
     
-    return x, y, z
+    return [x,y,z]
 
 def GCD_cartesian(cartesian1, cartesian2):
     
-    gcd =  np.arccos(np.dot(cartesian1,cartesian2))
+    dot = np.dot(cartesian1, cartesian2)
+    if abs(dot) > 1: dot = round(dot)    
+    gcd =  np.arccos(dot)
     
     return gcd
-
 def get_poles (df, name, slat, slon, dec, inc, plat, plon, verbose=True):
     """
     Seeks to fill in missing poles/vgp entries in dataframe.
