@@ -85,6 +85,43 @@ def get_poles (df, name, slat, slon, dec, inc, plat, plon, verbose=True):
     
     return df
 
+def get_mean_age (df, name, mean_age, min_age, max_age, verbose=True):
+    """
+    Fills in missing mean age data from provided max and min reported ages.
+    """
+    # first identify any entries missing mean age information
+    df['mean_age_exists'] = df.apply(lambda row: True if not np.isnan(row[mean_age]) else False, axis=1)
+    df_missing_age = df[df['mean_age_exists'] == False]
+    
+    if not df_missing_age.empty:
+        # check that those which are missing mean age data have sufficient information to calculate it (min and max age data)
+        df_missing_age['sufficient'] = df_missing_age.apply(lambda row: True if not (np.isnan(row[min_age]) or np.isnan(row[max_age])) \
+                                                                                        else False, axis=1)
+        
+        # report any sites where critical information is lacking 
+        if not df_missing_age['sufficient'].all():
+            missing_idx = df_missing_age.index[df_missing_age['sufficient'] == False].tolist()
+            if verbose:
+                for i in missing_idx:
+                    location = df[name][i]
+                    print (f'Missing min and/or max age at site {location} where no mean age is reported;' \
+                           ' cannot calculate mean age -- dropping entry')
+                    
+            # drop entries with no vgp
+            df.drop(labels=missing_idx, inplace=True)
+
+        # calculate mean age.
+        df_get_mean_age = df_missing_age[df_missing_age['sufficient'] == True]
+        if not df_get_mean_age.empty:
+            df_get_mean_age['mean_age'] = df_get_mean_age.apply(lambda row: (row[min_age]+row[max_age])/2., axis=1)
+            
+            # assign calculated a95s to original dataframe.
+            df[mean_age].fillna(df_get_mean_age.mean_age, inplace=True)
+        
+    df.drop(['mean_age_exists'], axis=1, inplace=True)
+    
+    return df
+
 def get_alpha95s (df, name, n, alpha95, k, verbose=True): 
     """
     Seeks to fill in missing alpha95s in dataframe.
