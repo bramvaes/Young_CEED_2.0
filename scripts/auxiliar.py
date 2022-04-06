@@ -1,6 +1,9 @@
 import os
 import numpy as np
 from pmagpy import pmag, ipmag
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+import cartopy.crs as ccrs
 
 def get_files_in_directory(path): 
     """
@@ -229,3 +232,81 @@ def go_reverse (df, plat, plon, rev_plat, rev_plon, rev_mean=[0,-90]):
     df.drop(['GCD'], axis=1, inplace=True)
     
     return df
+
+def print_pole_statistics(pole, vgp_mean):
+    
+    print(f"{'' : <20}{'Pole' : ^10}{'N' : ^10}{'Plat' : ^10}{'Plon' : ^10}{'A95' : >5}")        
+    print(f"{'Reported paleopole' : <20}{pole.iloc[0]['pole'] : ^10}{pole.iloc[0]['N'] : ^10}{pole.iloc[0]['Plat'] : ^10}{pole.iloc[0]['Plon'] : ^10}{pole.iloc[0]['A95'] : >5}")    
+    print(f"{'Recomputed paleopole' : <20}{pole.iloc[0]['pole'] : ^10}{vgp_mean['n'] : ^10}{vgp_mean['inc'] : ^10.1f}{vgp_mean['dec'] : ^10.1f}{vgp_mean['alpha95'] : >5.1f}")
+    print(f"")
+
+def test_fishqq(merged):
+    if len(merged) <= 10: print (' - Not enough sites to conduct quantile-quantile test')
+    else:                              
+        plt.figure(1,figsize=(7,3))
+        ipmag.fishqq(di_block=merged)               
+        plt.show()
+        
+def reversal_test(mode1, mode2):
+    if len(mode1) == 0 or len(mode2) == 0: 
+        print (' ')
+        print (' - Only one polarity; cannot conduct reversal test')
+    elif len(mode1) < 3 or len(mode2) < 3: 
+        print (' ')
+        print (' - Not enough sites from one (or both) polarity populations to conduct reversal test')
+    else: 
+        flipped2 = np.delete(np.array(ipmag.do_flip(di_block=mode2)), -1, axis=1)
+        ipmag.common_mean_bootstrap(mode1, flipped2)      
+        
+def invert_polarity(mode1, mode2):
+    
+    if mode2.size == 0: merged = mode1
+    else:
+        flipped2 = np.array(ipmag.do_flip(di_block=mode2))[:,:2]
+        #flipped2 = np.delete(np.array(ipmag.do_flip(di_block=mode2)), -1, axis=1)
+        merged = np.concatenate((mode1, flipped2))
+    
+    return merged
+
+def Plot_VgpsAndSites(selected_vgps, selected_pole, vgp_mean, mode1, mode2):
+    
+    fig = plt.figure(figsize=(12, 6))
+    # gs = fig.add_gridspec(1, 2)
+    
+    lonW, lonE, latS, latN = -135, -55, 15, 65
+    cLat, cLon = (latN + latS) / 2, (lonW + lonE) / 2    
+    
+    proj = ccrs.Stereographic(central_longitude=cLon, central_latitude=cLat)
+    ax1 = fig.add_subplot(1,2,1, projection=proj)
+    #ax1 = fig.add_subplot(gs[0, 0], projection=proj)
+    ax1.set_extent([lonW, lonE, latS, latN], crs=ccrs.PlateCarree())
+    ax1.stock_img()
+    ax1.coastlines()
+    ax1.gridlines()
+    ax1.scatter(x = selected_vgps['slon'], y = selected_vgps['slat'], 
+                color='red', s=20, marker='*', transform=ccrs.PlateCarree())
+    ax1.set_title('Site Localities')
+    #plot vgps + reported & re-calculated mean poles
+    #ax2 = fig.add_subplot(gs[0, 1]) 
+    ax2 = fig.add_subplot(1,2,2)    
+    ax2.set_title('VGPs and Paleomagnetic poles')
+    
+    ax2 = ipmag.plot_net()
+    ax2 = ipmag.plot_di([x[0] for x in mode1], [x[1] for x in mode1], 
+                        label = "VGPs")
+    
+    if len(mode2) != 0:
+        ax2 = ipmag.plot_di([x[0] for x in mode2], [x[1] for x in mode2],
+                            label = "VGPs")
+            
+    if not selected_pole.empty:
+        pole_lat = selected_pole['Plat'].values[0]
+        pole_lon = selected_pole['Plon'].values[0]
+        pole_A95 = selected_pole['A95'].values[0]
+        ax2 = ipmag.plot_di_mean(pole_lon, pole_lat, pole_A95, 
+                                 label="Reported Pole", color='y')    
+    
+    ax2 = ipmag.plot_di_mean(vgp_mean['dec'], vgp_mean['inc'], vgp_mean['alpha95'], 
+                             label="Recalculated Pole", color='red')
+    plt.legend(loc=3, fontsize=12)
+    plt.show()
