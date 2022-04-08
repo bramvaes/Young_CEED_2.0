@@ -251,7 +251,7 @@ def test_fishqq(merged):
 def reversal_test(mode1, mode2):
     if len(mode1) == 0 or len(mode2) == 0: 
         print (' ')
-        print (' - Only one polarity; cannot conduct reversal test')
+        print (' - Only one polarity; cannot conduct Bootstrapped reversal test')
     elif len(mode1) < 3 or len(mode2) < 3: 
         print (' ')
         print (' - Not enough sites from one (or both) polarity populations to conduct reversal test')
@@ -298,6 +298,8 @@ def Plot_VgpsAndSites(df, pole, vgp_mean, mode1, mode2):
     ax.add_feature(cfeature.LAND)
     ax.add_feature(cfeature.COASTLINE)
 
+        
+    #if not df[df['slat'].isna()].empty: 
     ax.scatter(x = df['slon'], y = df['slat'], color='r', s=20, marker='*', transform=ccrs.PlateCarree())
     
     ax2 = fig.add_subplot(1,2,2)    
@@ -346,8 +348,10 @@ def bayes_probability_heslop(DI1,DI2):
         X1=pmag.dir2cart(DI1) #convert normal polarity sites
         X2=pmag.dir2cart(DI2) 
         X12=np.concatenate((X1,-X2), axis=0) #pool site directions
-    else:
-        return print("Single Polarity, cannot conduct Bayesian Reversal Test")
+    else:       
+        print("Single Polarity, cannot conduct Bayesian Reversal Test")
+        P = 9999
+        return P
         
     def log_like(k,N,R):
         return N*sp.log(k/4/sp.pi)-N*log_sinh(k)+sp.log(4*sp.pi) \
@@ -386,7 +390,8 @@ def bayes_probability_heslop(DI1,DI2):
     BF0=mL1/mL2
     P=BF0/(1.+BF0)
     
-    return BF0, P
+    #return BF0, P
+    return P
 
 def bayes_support(P):
     '''From Heslop & Roberts (2018)
@@ -395,6 +400,7 @@ def bayes_support(P):
     support = ['Different means: very strong support','Different means: strong support','Different means: positive support','Ambiguous: weak support',
               'Common mean: positive support','Common mean: strong support','Common mean: very strong support']
     
+    if P == 9999: return 
     if P<0.01: return support[0]
     if P>=0.01 and P<0.05: return support[1]
     if P>=0.05 and P<0.25: return support[2]
@@ -402,3 +408,32 @@ def bayes_support(P):
     if P>=0.75 and P<0.95: return support[4]
     if P>=0.95 and P<0.99: return support[5]
     if P>=0.99: return support[6]
+
+def get_site_coordinates(D, I, Plat, Plon):
+    '''
+    The following function retrives Site coordinates from Dec/Inc and Plat/Plom
+    NOTE! there are always two possible solutions so the outcome is a list in the form [[Slat1, Slon1],[Slat2, Slon2]]
+    '''
+    paleolat = np.degrees(np.arctan(0.5 * np.tan(np.radians(I))))
+    colatitude = 90 - paleolat
+    beta = np.degrees(np.arcsin((np.sin(np.radians(colatitude)) * np.sin(np.radians(D))) / (np.cos(np.radians(Plat)))))
+    
+    def guess(Slat):
+        guess = np.arcsin(np.sin(np.radians(Slat)) * np.cos(np.radians(colatitude)) +
+                     np.cos(np.radians(Slat)) * np.sin(np.radians(colatitude)) * np.cos(np.radians(D))) - np.radians(Plat)
+        return np.degrees(guess)
+
+    sol = optimize.root(guess, x0 = [-90,90],  method='hybr')
+    
+    res = []
+    
+    for i in sol.x:
+                
+        if np.cos(np.radians(colatitude)) > np.sin(np.radians(i)) * np.sin(np.radians(Plat)):            
+            Slon = (Plon - beta) % 360.
+        else:
+            Slon = (Plon - 180 + beta) % 360.
+        
+        res.append([i,Slon])
+    
+    return res
