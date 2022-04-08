@@ -4,6 +4,7 @@ from pmagpy import pmag, ipmag
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import cartopy.crs as ccrs
+import cartopy.feature as cfeature 
 
 def get_files_in_directory(path): 
     """
@@ -259,7 +260,11 @@ def reversal_test(mode1, mode2):
         ipmag.common_mean_bootstrap(mode1, flipped2)      
         
 def invert_polarity(mode1, mode2):
-    
+    '''
+    Direcctions are flipped to a single polarity and pooled into a single variable (merged)
+    If mode2 is empty, the pooled group is equal to mode1
+    '''
+       
     if mode2.size == 0: merged = mode1
     else:
         flipped2 = np.array(ipmag.do_flip(di_block=mode2))[:,:2]
@@ -268,26 +273,33 @@ def invert_polarity(mode1, mode2):
     
     return merged
 
-def Plot_VgpsAndSites(selected_vgps, selected_pole, vgp_mean, mode1, mode2):
+def Plot_VgpsAndSites(df, pole, vgp_mean, mode1, mode2):
+    '''
+    Function to plot Site coordinates and directions in a stereonet along with the recomputed and reported pole  
+    '''    
     
-    fig = plt.figure(figsize=(12, 6))
-    # gs = fig.add_gridspec(1, 2)
+    fig = plt.figure(figsize=(12, 5))
     
-    lonW, lonE, latS, latN = -135, -55, 15, 65
-    cLat, cLon = (latN + latS) / 2, (lonW + lonE) / 2    
+    extent = [-135, -55,5, 90]
+    central_lon = np.mean(extent[:2])
+    central_lat = np.mean(extent[2:])    
     
-    proj = ccrs.Stereographic(central_longitude=cLon, central_latitude=cLat)
-    ax1 = fig.add_subplot(1,2,1, projection=proj)
-    #ax1 = fig.add_subplot(gs[0, 0], projection=proj)
-    ax1.set_extent([lonW, lonE, latS, latN], crs=ccrs.PlateCarree())
-    ax1.stock_img()
-    ax1.coastlines()
-    ax1.gridlines()
-    ax1.scatter(x = selected_vgps['slon'], y = selected_vgps['slat'], 
-                color='red', s=20, marker='*', transform=ccrs.PlateCarree())
-    ax1.set_title('Site Localities')
-    #plot vgps + reported & re-calculated mean poles
-    #ax2 = fig.add_subplot(gs[0, 1]) 
+    proj = ccrs.AlbersEqualArea(central_lon, central_lat)
+
+    #ax = plt.axes(projection=proj)
+    ax = fig.add_subplot(1,2,1, projection=proj)
+    ax.set_extent(extent)
+
+    # Put a background image on for nice sea rendering.
+    ax.stock_img()
+
+    ax.add_feature(cfeature.BORDERS)
+    ax.gridlines()
+    ax.add_feature(cfeature.LAND)
+    ax.add_feature(cfeature.COASTLINE)
+
+    ax.scatter(x = df['slon'], y = df['slat'], color='r', s=20, marker='*', transform=ccrs.PlateCarree())
+    
     ax2 = fig.add_subplot(1,2,2)    
     ax2.set_title('VGPs and Paleomagnetic poles')
     
@@ -299,10 +311,10 @@ def Plot_VgpsAndSites(selected_vgps, selected_pole, vgp_mean, mode1, mode2):
         ax2 = ipmag.plot_di([x[0] for x in mode2], [x[1] for x in mode2],
                             label = "VGPs")
             
-    if not selected_pole.empty:
-        pole_lat = selected_pole['Plat'].values[0]
-        pole_lon = selected_pole['Plon'].values[0]
-        pole_A95 = selected_pole['A95'].values[0]
+    if not pole.empty:
+        pole_lat = pole['Plat'].values[0]
+        pole_lon = pole['Plon'].values[0]
+        pole_A95 = pole['A95'].values[0]
         ax2 = ipmag.plot_di_mean(pole_lon, pole_lat, pole_A95, 
                                  label="Reported Pole", color='y')    
     
@@ -310,3 +322,83 @@ def Plot_VgpsAndSites(selected_vgps, selected_pole, vgp_mean, mode1, mode2):
                              label="Recalculated Pole", color='red')
     plt.legend(loc=3, fontsize=12)
     plt.show()
+    
+
+    
+import scipy as sp #import scipy    
+from scipy.integrate import quad #import 1D quadrature function
+from scipy.integrate import nquad #import ND quadrature function
+import SPD.lib.lib_directional_statistics as lib_direct
+
+
+
+def bayes_probability_heslop(DI1,DI2):
+    '''    
+    Calculate the Bayes probability that the to group of directions
+    are drawn from a single Fisher distributed poopulation following 
+    Heslop and Roberts (2018). 
+    
+    input: two numpy arrays [dec, inc] flipped to the same polarity
+    
+    '''    
+       
+    if DI2.any():
+        X1=pmag.dir2cart(DI1) #convert normal polarity sites
+        X2=pmag.dir2cart(DI2) 
+        X12=np.concatenate((X1,-X2), axis=0) #pool site directions
+    else:
+        return print("Single Polarity, cannot conduct Bayesian Reversal Test")
+        
+    def log_like(k,N,R):
+        return N*sp.log(k/4/sp.pi)-N*log_sinh(k)+sp.log(4*sp.pi) \
+                +log_sinh(k*R)-sp.log(k*R)
+
+    def log_sinh(k):
+        if k>700:
+            s=k-sp.log(2.0)
+        else:
+            s=sp.log(sp.sinh(k))
+        return s
+
+    def log_prior(k):
+        return np.log(4.0)+2.0*np.log(k)-np.log(np.pi)-2.0*np.log(1.+k**2)
+
+    def integrand1(k,x):
+        R=np.sqrt(np.sum(np.sum(x,axis=0)**2))
+        N=np.size(x,axis=0)
+        val = np.exp(log_like(k,N,R)+log_prior(k))
+        return val
+
+    def integrand2(k,x1,x2):
+        R1=np.sqrt(np.sum(np.sum(x1,axis=0)**2))
+        N1=np.size(x1,axis=0)
+
+        R2=np.sqrt(np.sum(np.sum(x2,axis=0)**2))
+        N2=np.size(x2,axis=0)
+
+        val = np.exp(log_like(k,N1,R1)+log_like(k,N2,R2)+log_prior(k))
+
+        return val        
+    
+    mL1 = quad(integrand1, 0, np.inf, args=(X12))[0] #Bayes factor numerator (Eqn 13)
+    mL2 = quad(integrand2, 0, np.inf, args=(X1,X2))[0] #Bayes factor denominator (Eqn 14)
+    
+    BF0=mL1/mL2
+    P=BF0/(1.+BF0)
+    
+    return BF0, P
+
+def bayes_support(P):
+    '''From Heslop & Roberts (2018)
+     categories of support from the bayesian probability(float)'''
+    
+    support = ['Different means: very strong support','Different means: strong support','Different means: positive support','Ambiguous: weak support',
+              'Common mean: positive support','Common mean: strong support','Common mean: very strong support']
+    
+    if P<0.01: return support[0]
+    if P>=0.01 and P<0.05: return support[1]
+    if P>=0.05 and P<0.25: return support[2]
+    if P>=0.25 and P<0.75: return support[3]
+    if P>=0.75 and P<0.95: return support[4]
+    if P>=0.95 and P<0.99: return support[5]
+    if P>=0.99: return support[6]
