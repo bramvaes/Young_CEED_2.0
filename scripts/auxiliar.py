@@ -137,6 +137,7 @@ def get_alpha95s (df, name, n, alpha95, k, verbose=True):
     df['a95_exists'] = df.apply(lambda row: True if not np.isnan(row[alpha95]) else False, axis=1)
     df_missing_a95s = df[df['a95_exists'] == False]
     
+    
     if not df_missing_a95s.empty:
         # check that those which are missing alpha95 data have sufficient information to calculate it (n & k)
         df_missing_a95s['sufficient'] = df_missing_a95s.apply(lambda row: True if not (np.isnan(row[n]) or np.isnan(row[k])) \
@@ -234,12 +235,24 @@ def go_reverse (df, plat, plon, rev_plat, rev_plon, rev_mean=[0,-90]):
     
     return df
 
-def print_pole_statistics(pole, vgp_mean):
+def print_pole_statistics(pole, vgp_mean, vgp_mean_recomputed):
     
-    print(f"{'' : <20}{'Pole' : ^10}{'N' : ^10}{'Plat' : ^10}{'Plon' : ^10}{'A95' : >5}")        
-    print(f"{'Reported paleopole' : <20}{pole.iloc[0]['pole'] : ^10}{pole.iloc[0]['N'] : ^10}{pole.iloc[0]['Plat'] : ^10}{pole.iloc[0]['Plon'] : ^10}{pole.iloc[0]['A95'] : >5}")    
-    print(f"{'Recomputed paleopole' : <20}{pole.iloc[0]['pole'] : ^10}{vgp_mean['n'] : ^10}{vgp_mean['inc'] : ^10.1f}{vgp_mean['dec'] : ^10.1f}{vgp_mean['alpha95'] : >5.1f}")
-    print(f"")
+    if len(vgp_mean) == 0:
+        print(f"{'' : <20}{'Pole' : <30}{'N' : ^10}{'Plat' : ^10}{'Plon' : ^10}{'A95' : >5}")        
+        print(f"{'Reported paleopole' : <30}{pole.iloc[0]['pole'] : ^10}{pole.iloc[0]['N'] : ^10}{pole.iloc[0]['Plat'] : ^10}{pole.iloc[0]['Plon'] : ^10}{pole.iloc[0]['A95'] : >5}")
+        print(f"{'Recomputed paleopole' : <30}{'':^10}{'Not enough vgps to recompute a Paleopole' : ^10}")
+        print(f"{'Recomputed pp from dir.' : <30}{'':^10}{'Not enough vgps to recompute a Paleopole' : ^10}")
+    elif len(vgp_mean_recomputed) == 0:
+        print(f"{'' : <20}{'Pole' : <30}{'N' : ^10}{'Plat' : ^10}{'Plon' : ^10}{'A95' : >5}")        
+        print(f"{'Reported paleopole' : <30}{pole.iloc[0]['pole'] : ^10}{pole.iloc[0]['N'] : ^10}{pole.iloc[0]['Plat'] : ^10}{pole.iloc[0]['Plon'] : ^10}{pole.iloc[0]['A95'] : >5}")
+        print(f"{'Recomputed paleopole' : <30}{pole.iloc[0]['pole'] : ^10}{vgp_mean['n'] : ^10}{vgp_mean['inc'] : ^10.1f}{vgp_mean['dec'] : ^10.1f}{vgp_mean['alpha95'] : >5.1f}")
+        print(f"{'Recomputed pp from dir.' : <30}{'':^10}{'Not enough vgps to recompute a Paleopole from directions' : ^10}")
+    else:
+        print(f"{'' : <30}{'Pole' : ^10}{'N' : ^10}{'Plat' : ^10}{'Plon' : ^10}{'A95' : >5}")        
+        print(f"{'Reported paleopole' : <30}{pole.iloc[0]['pole'] : ^10}{pole.iloc[0]['N'] : ^10}{pole.iloc[0]['Plat'] : ^10}{pole.iloc[0]['Plon'] : ^10}{pole.iloc[0]['A95'] : >5}")    
+        print(f"{'Recomputed paleopole' : <30}{pole.iloc[0]['pole'] : ^10}{vgp_mean['n'] : ^10}{vgp_mean['inc'] : ^10.1f}{vgp_mean['dec'] : ^10.1f}{vgp_mean['alpha95'] : >5.1f}")
+        print(f"{'Recomputed pp from dir.' : <30}{pole.iloc[0]['pole'] : ^10}{vgp_mean_recomputed['n'] : ^10}{vgp_mean_recomputed['inc'] : ^10.1f}{vgp_mean_recomputed['dec'] : ^10.1f}{vgp_mean_recomputed['alpha95'] : >5.1f}")
+        print(f"")
 
 def test_fishqq(merged):
     if len(merged) <= 10: print (' - Not enough sites to conduct quantile-quantile test')
@@ -265,7 +278,10 @@ def invert_polarity(mode1, mode2):
     If mode2 is empty, the pooled group is equal to mode1
     '''
        
-    if mode2.size == 0: merged = mode1
+    if mode2.size == 0: 
+        merged = mode1
+    elif mode1.size == 0: 
+        merged = mode2
     else:
         flipped2 = np.array(ipmag.do_flip(di_block=mode2))[:,:2]
         #flipped2 = np.delete(np.array(ipmag.do_flip(di_block=mode2)), -1, axis=1)
@@ -319,8 +335,8 @@ def Plot_VgpsAndSites(df, pole, vgp_mean, mode1, mode2):
         pole_A95 = pole['A95'].values[0]
         ax2 = ipmag.plot_di_mean(pole_lon, pole_lat, pole_A95, 
                                  label="Reported Pole", color='y')    
-    
-    ax2 = ipmag.plot_di_mean(vgp_mean['dec'], vgp_mean['inc'], vgp_mean['alpha95'], 
+    if not len(vgp_mean) == 0:
+        ax2 = ipmag.plot_di_mean(vgp_mean['dec'], vgp_mean['inc'], vgp_mean['alpha95'], 
                              label="Recalculated Pole", color='red')
     plt.legend(loc=3, fontsize=12)
     plt.show()
@@ -340,16 +356,16 @@ def bayes_probability_heslop(DI1,DI2):
     are drawn from a single Fisher distributed poopulation following 
     Heslop and Roberts (2018). 
     
-    input: two numpy arrays [dec, inc] flipped to the same polarity
+    input: two numpy arrays [dec, inc]
     
     '''    
        
-    if DI2.any():
+    if DI2.any() & DI1.any():
         X1=pmag.dir2cart(DI1) #convert normal polarity sites
         X2=pmag.dir2cart(DI2) 
         X12=np.concatenate((X1,-X2), axis=0) #pool site directions
     else:       
-        print("Single Polarity, cannot conduct Bayesian Reversal Test")
+        print(" - Only one polarity; cannot conduct Bayesian Reversal Test")
         P = 9999
         return P
         
@@ -437,3 +453,44 @@ def get_site_coordinates(D, I, Plat, Plon):
         res.append([i,Slon])
     
     return res
+
+def orientation_matrix(ArrayXYZ):
+    '''input : np.array of x,y,z coordinates
+    returns the orientation matrix
+    '''
+    X =[
+        [sum(ArrayXYZ[:,0]*ArrayXYZ[:,0]),sum(ArrayXYZ[:,0]*ArrayXYZ[:,1]),sum(ArrayXYZ[:,0]*ArrayXYZ[:,2])],
+        [sum(ArrayXYZ[:,0]*ArrayXYZ[:,1]),sum(ArrayXYZ[:,1]*ArrayXYZ[:,1]),sum(ArrayXYZ[:,1]*ArrayXYZ[:,2])],
+        [sum(ArrayXYZ[:,0]*ArrayXYZ[:,2]),sum(ArrayXYZ[:,1]*ArrayXYZ[:,2]),sum(ArrayXYZ[:,2]*ArrayXYZ[:,2])]
+        ]
+    X = np.array(X) / len(ArrayXYZ)
+    
+    return X
+
+def eigen_decomposition(ArrayXYZ):
+    '''
+    input: np.array of direction cosines
+    outuput : watch out to the shape !!! => eigen_vectors[:,0] => represents the principal direction vector
+    '''  
+    Means = [ArrayXYZ[:,0].mean(),ArrayXYZ[:,1].mean(),ArrayXYZ[:,2].mean()]   
+
+    X = orientation_matrix(ArrayXYZ)
+    eigenValues, eigenVectors = np.linalg.eig(X)
+    
+    #the following block sorts the eigenvectros acrodnig to the eigenvalues
+    idx = eigenValues.argsort()[::-1]   
+    eigenValues = eigenValues[idx]
+    eigenVectors = eigenVectors[:,idx]
+           
+    return eigenValues, eigenVectors
+
+def shape(ArrayXYZ):
+    '''given an array of direction cosines [x,y,z], computes its eigen parameter and 
+    returns the shape as [oblateness, prolateness,collinearity(K),coplanarity(M)]'''
+    eigen_values = eigen_decomposition(ArrayXYZ)[0]
+    
+    O = np.log(eigen_values[1]/eigen_values[2]) # Oblateness
+    P = np.log(eigen_values[0]/eigen_values[1]) # Prolateness
+    K = np.log(eigen_values[0]/eigen_values[1])/np.log(eigen_values[1]/eigen_values[2]) #Collinearity
+    M = np.log(eigen_values[0]/eigen_values[2]) #Coplanarity
+    return [O, P, K, M] 
