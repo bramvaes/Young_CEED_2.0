@@ -46,6 +46,14 @@ def GCD_cartesian(cartesian1, cartesian2):
     
     return gcd
 
+def get_k(df_vgps): 
+    df_vgps['k'] = np.where(df_vgps['k'].isna(), ((140./df_vgps['alpha95'])**2)/(df_vgps['n']), df_vgps['k'])
+    return df_vgps
+
+def get_alpha95(df_vgps): 
+    df_vgps['alpha95'] = np.where(df_vgps['alpha95'].isna(), 140.0/np.sqrt(df_vgps['n'] * df_vgps['k']),df_vgps['alpha95'])
+    return df_vgps
+
 def get_poles (df, name, slat, slon, dec, inc, plat, plon, verbose=True):
     """
     Seeks to fill in missing poles/vgp entries in dataframe.
