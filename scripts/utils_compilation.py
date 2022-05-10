@@ -7,11 +7,13 @@ import pandas as pd
 
 
 
-def generates_compilation(current_path, incl_criteria):
+
+def merge_all_files(current_path):
     '''
-    From the current path, this function generates a dataframe that contains all the entries that pass the given including cirterias
+    Given the path in which live all the files, this function generates a dataframe that gathers all the vgps and another
+    different DF for the reported poles.
     '''
-   
+    
     def get_df_files(current_path):
         '''
         from the current path, this function generates a datafram with the name and complete path to the file within the folder
@@ -22,7 +24,7 @@ def generates_compilation(current_path, incl_criteria):
         paths = [file for file in files_names if file.endswith('.xlsx')]
         df_files = pd.DataFrame({'path': paths,  'name_xlsx': xlsx_file_names})
         return df_files
-
+    
     def merge_unfiltered_datasheets(df_files):    
         '''
         from the current path, this function generates a dataframe that contains all the entries included in all the files in the current directory
@@ -54,7 +56,20 @@ def generates_compilation(current_path, incl_criteria):
                 df_vgp_unfiltered = df_vgp_unfiltered.append(df_vgps_temp, ignore_index=True)
                 df_poles_original = df_poles_original.append(df_poles_temp, ignore_index=True)    
                
-        return df_vgp_unfiltered, df_poles_original
+        return df_vgp_unfiltered, df_poles_original    
+    
+    df_files = get_df_files(current_path)
+    df_vgp_unfiltered, df_poles_original = merge_unfiltered_datasheets(df_files)
+    
+    return df_vgp_unfiltered, df_poles_original
+
+
+def generates_compilation(df_vgp_unfiltered, df_poles_original, incl_criteria):
+    '''
+    This function generates a dataframe that contains all the entries that pass the given including cirterias
+    '''
+
+
         
     def separate_synch_unit_means(df_vgp_unfiltered):
         '''
@@ -149,8 +164,9 @@ def generates_compilation(current_path, incl_criteria):
                         df_temp = df_temp.append(df_synch_unit)
                     else:
                         #print(study,synch_unit,"append the reported mean")
-                        df_temp = df_temp.append(df_synch_unit_means[df_synch_unit_means['synch_unit'] == "M" + str(synch_unit)]); continue
-            
+                        df_temp = df_temp.append(df_synch_unit_means[(df_synch_unit_means['synch_unit'] == "M" + str(synch_unit)) &
+                                                                     (df_synch_unit_means['Study'] == study)]); continue
+                                                                            
             if incl_criteria['anomalous_dir']: df_temp = discard_vgps_recursively(df_temp, incl_criteria['anomalous_dir'])
 
             ppole = ipmag.fisher_mean(dec = df_temp['vgp_lon_SH'].tolist(), inc = df_temp['vgp_lat_SH'].tolist()) # final paleopole
@@ -165,12 +181,12 @@ def generates_compilation(current_path, incl_criteria):
                                                               'min_age': df_study.min_age.min(), 'max_age': df_study.max_age.max(), 
                                                               'mean_age': (df_study.max_age.max() + df_study.min_age.min()) / 2 }, 
                                                               ignore_index=True)
-
+            
+            df_pole_compilation.flags.allows_duplicate_labels = False
+            
         return df_vgp_compilation, df_pole_compilation
-        
-        
-    df_files = get_df_files(current_path)
-    df_vgp_unfiltered, df_poles_original = merge_unfiltered_datasheets(df_files)
+               
+ 
     df_vgp_unfiltered, df_synch_unit_means = separate_synch_unit_means(df_vgp_unfiltered)  
     df_vgp_unfiltered = parse_including_criteria(df_vgp_unfiltered)
     df_pre_selection = selection_boolean_conditionals(df_vgp_unfiltered, incl_criteria)
