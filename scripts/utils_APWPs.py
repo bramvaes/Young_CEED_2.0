@@ -9,6 +9,8 @@ import cartopy.crs as ccrs
 from cartopy.geodesic import Geodesic
 from shapely.geometry import Polygon
 
+from scripts.auxiliar import spherical2cartesian, shape, eigen_decomposition
+
 
 def running_mean_APWP (data, plon_label, plat_label, age_label, window_length, time_step, max_age, min_age):
     """
@@ -17,19 +19,52 @@ def running_mean_APWP (data, plon_label, plat_label, age_label, window_length, t
     
     mean_pole_ages = np.arange(min_age, max_age + time_step, time_step)
     
-    running_means = pd.DataFrame(columns=['age','N','A95','plon','plat'])
+    running_means = pd.DataFrame(columns=['age','N','n_studies','k','A95','csd','plon','plat'])
     
     for age in mean_pole_ages:
         window_min = age - (window_length / 2.)
         window_max = age + (window_length / 2.)
         poles = data.loc[(data[age_label] >= window_min) & (data[age_label] <= window_max)]
+        number_studies = len(poles['Study'].unique())
         mean = ipmag.fisher_mean(dec=poles[plon_label].tolist(), inc=poles[plat_label].tolist())
+
         if mean: # this just ensures that dict isn't empty
-            running_means.loc[age] = [age, mean['n'], mean['alpha95'], mean['dec'], mean['inc']]
+            running_means.loc[age] = [age, mean['n'], number_studies, mean['k'],mean['alpha95'], mean['csd'], mean['dec'], mean['inc']]
     
     running_means.reset_index(drop=1, inplace=True)
     
     return running_means
+
+def running_mean_APWP_shape(data, plon_label, plat_label, age_label, window_length, time_step, max_age, min_age):
+    """
+    function to generate running mean APWP..
+    """
+    
+    mean_pole_ages = np.arange(min_age, max_age + time_step, time_step)
+    
+    running_means = pd.DataFrame(columns=['age','N','n_studies','k','A95','csd','plon','plat', 'foliation','lineation','collinearity','coplanarity'])
+    
+    for age in mean_pole_ages:
+        window_min = age - (window_length / 2.)
+        window_max = age + (window_length / 2.)
+        poles = data.loc[(data[age_label] >= window_min) & (data[age_label] <= window_max)]
+        number_studies = len(poles['Study'].unique())
+        mean = ipmag.fisher_mean(dec=poles[plon_label].tolist(), inc=poles[plat_label].tolist())
+        
+        ArrayXYZ = np.array([spherical2cartesian([i[plat_label], i[plon_label]]) for _,i in poles.iterrows()])        
+        if len(ArrayXYZ) > 3:
+            shapes = shape(ArrayXYZ)       
+        else:
+            shapes = [np.nan,np.nan,np.nan,np.nan]
+        
+        if mean: # this just ensures that dict isn't empty
+            running_means.loc[age] = [age, mean['n'], number_studies, mean['k'],mean['alpha95'], mean['csd'], mean['dec'], mean['inc'], 
+                                      shapes[0], shapes[1], shapes[2], shapes[3]]
+    
+    running_means.reset_index(drop=1, inplace=True)
+    
+    return running_means
+
 
 
 def plot_poles (df, plon, plat, A95, clr_scaling, size_scaling, extent, plot_A95s=True, connect_poles=False):
@@ -71,6 +106,64 @@ def plot_poles (df, plon, plat, A95, clr_scaling, size_scaling, extent, plot_A95
 
     handles, labels = ax.get_legend_handles_labels()
     ax.legend(reversed(handles), reversed(labels))
+    plt.show()
+    
+
+def plot_poles_and_stats (df, plon, plat, A95, clr_scaling, size_scaling, extent, plot_A95s=True, connect_poles=False):
+    """
+    function to plot poles...could be broken into several simpler functions to make function passing simpler...
+    """
+    
+    #plt.style.use('ggplot')
+    fig = plt.figure(figsize=(20,10))   
+    
+    proj = ccrs.Orthographic(central_longitude=0, central_latitude=-55) #30, -60
+    # ax = plt.axes(projection=proj)    
+    ax = fig.add_subplot(1,2,1, projection=proj)
+    
+    ax.stock_img()
+    ax.coastlines(linewidth=1, alpha=0.5)
+    ax.gridlines(linewidth=1)
+    
+    cmap = mpl.cm.get_cmap('viridis')
+
+    # plot the A95s
+    if plot_A95s:
+        norm = mpl.colors.Normalize(df[clr_scaling].min(), df[clr_scaling].max())
+        df['geom'] = df.apply(lambda row: Polygon(Geodesic().circle(lon=row[plon], lat=row[plat], radius=row[A95]*111139, n_samples=360, endpoint=True)), axis=1)
+        for idx, row in df.iterrows():
+            ax.add_geometries([df['geom'][idx]], crs=ccrs.PlateCarree().as_geodetic(), facecolor='none', edgecolor=cmap(norm(df[clr_scaling][idx])), 
+                              alpha=0.6, linewidth=1)
+        df.drop(['geom'], axis=1)
+
+    # plot the mean poles
+    if not size_scaling == None:
+        sns.scatterplot(x = df[plon], y = df[plat], hue = df[clr_scaling], palette=cmap, size = df[size_scaling], sizes=(50, 200),
+                        transform = ccrs.PlateCarree(), zorder=4)
+    else:
+        sns.scatterplot(x = df[plon], y = df[plat], hue = df[clr_scaling], palette=cmap, s=50, transform = ccrs.PlateCarree(), zorder=4)
+    
+    if connect_poles:
+        plt.plot(df[plon], df[plat], transform = ccrs.Geodetic(), color='red', linewidth=2.0)
+
+    if extent != 'global':
+        ax.set_extent(extent, crs = ccrs.PlateCarree())
+
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(reversed(handles), reversed(labels))
+    
+    
+    ax2 = fig.add_subplot(1,2,2)  
+    ax2.set_title('Moving average stats')
+    
+    df['kappa_norm'] = df['k'] / df['k'].max()
+    df['N_norm'] = df['N'] / df['N'].max()
+    
+    dfm = df[['age', 'A95', 'n_studies', 'csd','kappa_norm']].melt('age', var_name='type', value_name='vals')
+    
+    
+    ax2 = sns.lineplot(data  = dfm, x = dfm['age'], y = dfm['vals'], hue = dfm['type'],marker="o")
+
     plt.show()
     
     

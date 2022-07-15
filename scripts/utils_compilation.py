@@ -10,13 +10,13 @@ import pandas as pd
 
 def merge_all_files(current_path):
     '''
-    Given the path in which live all the files, this function generates a dataframe that gathers all the vgps and another
+    Given the path in which all the files live, this function generates a dataframe that gathers all the vgps and another
     different DF for the reported poles.
     '''
     
     def get_df_files(current_path):
         '''
-        from the current path, this function generates a datafram with the name and complete path to the file within the folder
+        from the current path, this function generates a dataframe with the name and complete path to the file within the folder
         '''
         data_path_VGP = current_path + '/vgp_database'
         files_names = get_files_in_directory(data_path_VGP)
@@ -36,10 +36,11 @@ def merge_all_files(current_path):
 
             # import data and assign to dataframes
             df_poles_temp, df_vgps_temp = split_datasheet(df_files, i)
-
+            df_poles_temp['Study'] = df_files.name_xlsx[i]
+            
             df_vgps_temp['rej_crit'] = [[int(float(j)) for j in str(i.rej_crit).split(';') if ~np.isnan(float(j))] for _,i in df_vgps_temp.iterrows()]
             df_vgps_temp['Study'] = df_files.name_xlsx[i]
-
+            
             if not df_vgps_temp.empty:
 
                 df_vgps_temp = recalc_vgps(df_vgps_temp)       
@@ -54,7 +55,7 @@ def merge_all_files(current_path):
 
                 # parse data
                 df_vgp_unfiltered = df_vgp_unfiltered.append(df_vgps_temp, ignore_index=True)
-                df_poles_original = df_poles_original.append(df_poles_temp, ignore_index=True)    
+            df_poles_original = df_poles_original.append(df_poles_temp, ignore_index=True)    
                
         return df_vgp_unfiltered, df_poles_original    
     
@@ -78,8 +79,8 @@ def generates_compilation(df_vgp_unfiltered, df_poles_original, incl_criteria):
         # Set a DataFrame for the means of the synchronous units
         df_synch_unit_means = df_vgp_unfiltered[df_vgp_unfiltered['synch_unit'].str.contains("M", na=False)]
         # Ignore the means of the synch_units and cast the synch_unit to int
-        df_vgp_unfiltered = df_vgp_unfiltered[~df_vgp_unfiltered['synch_unit'].str.contains("M", na=False)]
-        df_vgp_unfiltered['synch_unit'] = df_vgp_unfiltered['synch_unit'].astype(int)        
+        # df_vgp_unfiltered = df_vgp_unfiltered[~df_vgp_unfiltered['synch_unit'].str.contains("M", na=False)]
+        # df_vgp_unfiltered['synch_unit'] = df_vgp_unfiltered['synch_unit'].astype(int)
 
         return df_vgp_unfiltered, df_synch_unit_means
         
@@ -141,49 +142,102 @@ def generates_compilation(df_vgp_unfiltered, df_poles_original, incl_criteria):
         df_vgp_compilation = pd.DataFrame(data = None, columns = df_vgp_unfiltered.columns)
         df_pole_compilation = pd.DataFrame(data = None, columns = df_poles_original.columns)
 
+        # We have to iterate through the different studies to evaluate nested conditionals
         for study, df_study in df_selection.groupby('Study'):
-    
-            # dim a DF to fill in with those entries that pass the criterias
+
+            # list wtih ALL the synch_units
+            synch_units = [i for i in df_study['synch_unit'].unique() if isinstance(i, (float, int))] 
+            # means of the synch_units reported by authors (M entries)
+            synch_units_means = [int(i.replace('M', '')) for i in df_study['synch_unit'].unique() if isinstance(i, str)]
+            # entries with no reported mean by authors (but considered to belong to the same cooling unit)
+            synch_without_mean = list(set(synch_units) - set(synch_units_means)) 
+
+            # dim a DF to fill-in with those entries that pass the criterias
             df_temp = pd.DataFrame(data = None, columns = df_selection.columns)
 
             # Strip age distinct (and send to the final DF), then, continue working with the subselection (this is independet of whether or not the criteria was applied)
-            if not df_study[df_study['distinct_age'] == True].empty: 
-                # send the vgps with distinct directly to the final compilation since there is no reason to discard them from it.
-                df_vgp_compilation = df_vgp_compilation.append(df_study[df_study['distinct_age'] == True]) 
-                df_study = df_study[~df_study['distinct_age'] == True]
-                # Group by synchronous units to evaluate if they represent the same spot reading or not 
-                # (the same spot reading should have high concentration parameter -- to be setted e.g. higher than 150)
+            if (incl_criteria['distinct_age']) and (not df_study[df_study['distinct_age'] == True].empty): 
+                df_vgp_compilation = df_vgp_compilation.append(df_study[df_study['distinct_age'] == True]) # send the vgps with distinct directly to the final compilation since there is no reason to discard them from it.
+                df_study = df_study.loc[~df_study['distinct_age'] == True]
+
+            # Group by synchronous units to evaluate if they represent the same spot reading or not (the same spot reading should have high concentration parameter -- to be setted e.g. higher than 150)
             for synch_unit, df_synch_unit in df_study.groupby('synch_unit'):
 
-                if synch_unit == 0:
-                    df_temp = df_temp.append(df_synch_unit); continue
+                if incl_criteria['sub-time_units']: 
 
-                if df_synch_unit.shape[0] > 1:
-                    synch_unit_mean = ipmag.fisher_mean(dec = df_synch_unit['vgp_lon_SH'].tolist(), inc = df_synch_unit['vgp_lat_SH'].tolist())                        
-                    if synch_unit_mean['k'] < 100:
+                    # if the synch_unit equals zero, it is considered as a sopt-reading, and thus, it goes directly to the compilation      
+                    if synch_unit == 0: df_temp = df_temp.append(df_synch_unit); continue
+
+                    # evaluate the concebtration of individual entries that were considered all together as spot reading and averaged accordingly (M)
+                    if isinstance(synch_unit, str):
+
+                        df_synch_unit = df_study[df_study['synch_unit'] == float(synch_unit.replace('M', ''))] #subselect entries 
+                        df_synch_unit['in_study_pole'] = df_synch_unit_means.loc[(df_synch_unit_means['synch_unit'] == synch_unit) & 
+                                                                                 (df_synch_unit_means['Study'] == study)]['in_study_pole'].to_list()[0]
+
+                        if df_synch_unit.shape[0] > 1: 
+
+                            synch_unit_mean = ipmag.fisher_mean(dec = df_synch_unit['vgp_lon_SH'].tolist(), inc = df_synch_unit['vgp_lat_SH'].tolist())
+
+                            if synch_unit_mean['k'] < 150: # append all the entries otherwise consider as a single mean
+                                df_temp = df_temp.append(df_synch_unit)                                         
+                            else:
+                                df_temp = df_temp.append(df_synch_unit_means.loc[(df_synch_unit_means['synch_unit'] == synch_unit) & 
+                                                                                 (df_synch_unit_means['Study'] == study)])        
+                    if synch_unit in synch_without_mean:                 
+                        if int(synch_unit) == 0: continue
+                        synch_unit_mean = ipmag.fisher_mean(dec = df_synch_unit['vgp_lon_SH'].tolist(), inc = df_synch_unit['vgp_lat_SH'].tolist())                        
+                        site = ipmag.fisher_mean(dec = df_synch_unit['slon'].tolist(), inc = df_synch_unit['slat'].tolist()) 
+
+                        df_temp = df_temp.append({'Study': study, 'slat': site['inc'], 'slon': site['dec'],                                          
+                                                  'vgp_lat_SH': synch_unit_mean['inc'], 'vgp_lon_SH': synch_unit_mean['dec'], 'k': synch_unit_mean['k'],'alpha95': synch_unit_mean['alpha95'],
+                                                  'mean_age': df_synch_unit['mean_age'].mean(), 'min_age': df_synch_unit['min_age'].mean(), 'max_age': df_synch_unit['max_age'].mean(),
+                                                  'synch_unit' : synch_unit},                   
+                                                   ignore_index = True)            
+
+                # if we not evaluate the entries within the cooling units, we take the M entries as face value (and we average the entries with no reported mean -i.e. M entry)                               
+                else:
+                    # spot readings (0) goes straight to the final compilation
+                    if synch_unit == 0: df_temp = df_temp.append(df_synch_unit); continue
+
+                    #print(df_temp[['Study','slat','synch_study']])
+
+
+                    # reported means (M's) goes sraight to the final compilation
+                    if isinstance(synch_unit, str):
+                        #print('-'+str(synch_unit))
                         df_temp = df_temp.append(df_synch_unit)
-                    else:
-                        #print(study,synch_unit,"append the reported mean")
-                        df_temp = df_temp.append(df_synch_unit_means[(df_synch_unit_means['synch_unit'] == "M" + str(synch_unit)) &
-                                                                     (df_synch_unit_means['Study'] == study)]); continue
-                                                                            
-            if incl_criteria['anomalous_dir']: df_temp = discard_vgps_recursively(df_temp, incl_criteria['anomalous_dir'])
 
+                    # if there are 
+                    if synch_unit in synch_without_mean: 
+                        if int(synch_unit) == 0: continue
+                        synch_unit_mean = ipmag.fisher_mean(dec = df_synch_unit['vgp_lon_SH'].tolist(), inc = df_synch_unit['vgp_lat_SH'].tolist())                        
+                        site = ipmag.fisher_mean(dec = df_synch_unit['slon'].tolist(), inc = df_synch_unit['slat'].tolist()) 
+
+                        df_temp = df_temp.append({'Study': study, 'slat': site['inc'], 'slon': site['dec'],                                          
+                                                  'vgp_lat_SH': synch_unit_mean['inc'], 'vgp_lon_SH': synch_unit_mean['dec'], 'k': synch_unit_mean['k'],'alpha95': synch_unit_mean['alpha95'],
+                                                  'mean_age': df_synch_unit['mean_age'].mean(), 'min_age': df_synch_unit['min_age'].mean(), 'max_age': df_synch_unit['max_age'].mean(),
+                                                  'synch_unit' : synch_unit},                   
+                                                   ignore_index = True)
+
+            if incl_criteria['anomalous_dir']: 
+                before = len(df_temp)
+                df_temp = discard_vgps_recursively(df_temp, incl_criteria['anomalous_dir'])
+                print('discarded : ', before - len(df_temp))
             ppole = ipmag.fisher_mean(dec = df_temp['vgp_lon_SH'].tolist(), inc = df_temp['vgp_lat_SH'].tolist()) # final paleopole
             mean_site = ipmag.fisher_mean(dec = df_temp['slon'].tolist(), inc = df_temp['slat'].tolist())
 
-            df_vgp_compilation = df_vgp_compilation.append(df_temp)
+            df_vgp_compilation = df_vgp_compilation.append(df_temp.copy(deep=True), ignore_index = True)
+
             if len(ppole) == 0: continue 
-            df_pole_compilation = df_pole_compilation.append({'name': study, 
+            df_pole_compilation = df_pole_compilation.append({'Study': study, 
                                                               'slat': mean_site['inc'], 'slon': mean_site['dec'],
                                                               'Plat': ppole['inc'], 'Plon': ppole['dec'],
                                                               'N': ppole['n'], 'K': ppole['k'], 'A95': ppole['alpha95'],
                                                               'min_age': df_study.min_age.min(), 'max_age': df_study.max_age.max(), 
                                                               'mean_age': (df_study.max_age.max() + df_study.min_age.min()) / 2 }, 
-                                                              ignore_index=True)
-            
-            df_pole_compilation.flags.allows_duplicate_labels = False
-            
+                                                              ignore_index = True)           
+    
         return df_vgp_compilation, df_pole_compilation
                
  
